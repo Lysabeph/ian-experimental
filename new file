@@ -1,0 +1,9 @@
+#!/usr/bin/python3
+
+import sqlite3
+
+c = sqlite3.connect("test.db")
+c.cursor().execute("CREATE TABLE Programs ( ProgramID INT NOT NULL AUTO_INCREMENT PRIMARY KEY, ProgramName char(32), TimesRun int, TotalRunTime datetime);")
+c.cursor().execute("INSERT INTO Programs VALUES (NULL, 'Chrome', '24', '2016-10-11 14:51:24');")
+for i in c.cursor().execute("SELECT * From Programs;"):
+    print(i)

@@ -1,0 +1,5 @@
+#!/usr/bin/bash
+
+mapfile -t y < ~/test/git/Project-I.A.N./Testing/previous_output
+
+echo ${y[-1]}

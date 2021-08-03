@@ -1,0 +1,35 @@
+#!/usr/bin/bash
+
+function get_proc {
+    # Writes the output of the ls command to a file.
+    ls ~/test/git/Project-I.A.N./Testing > "file_list"
+    array=()
+    # Reads the contents of the file into an array.
+    while read -r line; do
+        element="$line"
+        array+=("$element")
+    done < "file_list"
+}
+
+get_proc
+previous_array=("${array[@]}")
+while sleep 5; do
+    get_proc
+    echo ----------
+    echo "${previous_array[*]}"
+    echo "${array[*]}"
+    new_proc_array=()
+    # Loops through the new and old proceses, compares them and outputs all the new processes.
+    for element1 in "${array[@]}"; do
+        skip=
+        for element2 in "${previous_array[@]}"; do
+            [[ $element1 == $element2 ]] && { skip=1; break; }
+        done
+        [[ -n $skip ]] || new_proc_array+=("$element1")
+    done
+    echo "${new_proc_array[*]}"
+    previous_array=("${array[@]}")
+done
+
+
+

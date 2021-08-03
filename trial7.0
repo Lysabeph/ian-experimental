@@ -1,0 +1,160 @@
+#!/usr/bin/bash
+
+# Defines all constants.
+UPDATE_TIME=10
+SAVE_PATH=~/test/git/Project-I.A.N./Testing
+DATABASE=$SAVE_PATH/test.db
+
+# Defines all global stores.
+declare -A open_program_dict
+declare -a open_program_array
+
+if [ ! -d $SAVE_PATH ]; then
+    mkdir $SAVE_PATH
+fi
+
+if [ ! -f $DATABASE ]; then
+    sqlite3 $DATABASE < create.sql
+fi
+
+function compare_output {
+    # Reads the contents of the previous output into the program.
+    
+    mapfile -t prev_output < $SAVE_PATH/previous_output
+    unset prev_output[-1] # Removes the 'ps -u $USER -o pid,cmd' process.
+    
+    mapfile -t new_output < $SAVE_PATH/newest_output
+    unset new_output[-1] # Removes the 'ps -u $USER -o pid,cmd' process.
+
+    offset=0
+    local -a log
+
+    for element in ${!new_output[@]}; do
+    
+        while true; do
+            prev_proc=( ${prev_output[$(( element + offset ))]} )
+            new_proc=( ${new_output[$element]} )
+            
+            if [ "$prev_proc" == "$new_proc" ]; then
+                break
+            else
+                # Gets the pid (only) of the previous process being compared at the time.
+                local -i prev_pid=${prev_proc[0]}
+                # If prev_output < new_output, empty array elements default to a zero value.
+                # Setting the value larger than the max pid means new processes have a pid
+                # less than the non-existant previous process.
+                if [ "$prev_pid" -eq "0" ]; then
+                    prev_pid=$(( $( cat /proc/sys/kernel/pid_max ) + 1 ))
+                fi
+                
+                # Gets the pid (only) of the new process being compared at the time.
+                local -i new_pid=${new_proc[0]}
+                
+                # Determines if a new process was started or if an old process was stopped.            
+                if [ "$new_pid" -lt "$prev_pid" ]; then
+                    (( offset-- ))
+                    log=( "${log[@]}" "${new_proc[*]} $( date +"%s" ) Open" )
+                    break
+                elif [ "$new_pid" -gt "$prev_pid" ]; then
+                    (( offset++ ))
+                    log=( "${log[@]}" "${prev_proc[*]} $(date +"%s") Close" )
+                fi
+            fi
+        done
+    done
+    
+    # Finds any old processes that were started after the now most recently started process.
+    for item in "${prev_output[@]:$((element + offset + 1))}"; do
+        log=( "${log[@]}" "${prev_proc[*]} $(date +"%s") Close" )
+    done
+
+    local -a temp=( "${log[@]}" )
+
+    # Removes all the unnecessary records from the data.
+    for item in "${!temp[@]}"; do
+        record=( ${temp[$item]} )
+        declare -i index=1
+        for pid in "${!open_program_dict[@]}"; do
+            name=${open_program_dict[$pid]}
+            if [[ "$name" == "${record[$index]}" ]]; then
+                local present=true
+                if [[ "${record[0]}" == "$pid" ]]; then
+                    unset open_program_dict[$pid]
+                else
+                    unset log[$item]
+                break
+                fi
+            fi
+        done
+        echo "$present"
+        if ! [ $present ]; then
+            if [ "${record[-1]}" == "Open" ]; then
+                open_program_dict["${record[0]}"]="${record[$index]}"
+                temp2=${record[@]:0:${#record[@]}-2}
+                open_program_array=( "${open_program_array[@]}" "$temp2" )
+                unset temp2
+            else
+                unset log[$item]
+            fi
+        else
+            unset present
+        fi
+    done
+    unset temp
+    echo -------------------------------------------------
+    for record in "${log[@]}"; do
+        #echo $item | tee -a $SAVE_PATH/logs
+        record=( $record )
+        pid=${record[0]}
+        name=${record[1]}
+        command=${record[@]:2:${#record[@]}-2}
+        time=${record[-2]}
+        state=${record[-1]}
+        echo -----
+        echo $pid
+        echo $name
+        echo $command
+        echo $time
+        echo $state
+        echo -----
+
+        echo $( sqlite3 $DATABASE "INSERT INTO ProgramLogs(ProgramName, PID, DateTime, OpenClose) VALUES('$name', '$pid', '$time', '$state');" )
+        
+        if [[ "$state" == "Open" ]]; then
+            programs=$( sqlite3 $DATABASE "SELECT Programs.ProgramName FROM Programs;" )
+            if ! [[ "${programs[*]}" == *"$name"* ]]; then
+                echo $( sqlite3 $DATABASE "INSERT INTO Programs(ProgramName, TimesRun, TotalRunTime) VALUES('$name', 1, 0);" )
+            else
+                times_run=$( sqlite3 $DATABASE "SELECT TimesRun FROM Programs WHERE Programs.ProgramName='$name';" )
+                echo "Pre-update."
+                echo $name
+                echo $( sqlite3 $DATABASE "UPDATE Programs SET TimesRun=$(( $times_run + 1 )) WHERE ProgramName='$name';" )
+                echo "Post-update."
+            fi
+        elif [[ "$state" == "Close" ]]; then
+            stime=$( sqlite3 $DATABASE "SELECT ProgramLogs.DateTime FROM ProgramLogs WHERE ProgramLogs.ProgramName='$name' AND ProgramLogs.PID='$pid' AND ProgramLogs.OpenClose='Open' ORDER BY DateTime DESC Limit 1;" )
+            echo stime: $stime time: $time
+            rtime=$(( $time - $stime ))
+            total_time=$( sqlite3 $DATABASE "SELECT Programs.TotalRunTime FROM Programs WHERE Programs.ProgramName='$name';" )
+            echo total time: $total_time rtime: $rtime
+            echo $( sqlite3 $DATABASE "UPDATE Programs Set TotalRunTime=$(( $total_time + $rtime )) WHERE ProgramName='$name';" )
+        fi
+        
+    done
+    echo -------------------------------------------------
+}
+
+ps -u $USER -o pid,comm,cmd > $SAVE_PATH/previous_output
+
+while true; do
+    ps -u $USER -o pid,comm,cmd > $SAVE_PATH/newest_output
+    compare_output
+    echo Open Programs
+    echo ~~~~~
+    for i in "${!open_program_dict[@]}"; do
+        echo $i ${open_program_dict[$i]}
+    done
+    echo ~~~~~
+    sleep $UPDATE_TIME
+    cat $SAVE_PATH/newest_output > $SAVE_PATH/previous_output
+done

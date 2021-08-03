@@ -1,0 +1,9 @@
+#!/usr/bin/bash
+
+declare -a array
+string='124 ////this/is/the/program/name --some-argument-thingy ///this is the date'
+integers=(1 2 3)
+
+for e in "${integers[@]}"; do
+    echo $( echo $string | awk -F'///' -v i=$e '{print $i}' )
+done

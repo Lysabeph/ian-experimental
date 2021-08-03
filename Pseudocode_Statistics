@@ -1,0 +1,152 @@
+FOR line <-- READLINE("I.A.N.\ Statistics.py")
+
+    IF "DATABASE=" IN line
+        DATABASE <-- line[8:]
+    
+    ELSEIF "TIME_PERIOD=" IN line
+        TIME_PERIOD <-- line[12:]
+        
+    ELSEIF "UPDATE_INTERVAL=" IN line
+        UPDATE_INTERVAL <-- line[16:]
+    ENDIF
+ENDFOR
+
+FUNCTION get_time_range(epoch)
+    current_epoch <-- epoch
+    lower_epoch <-- current_epoch - current_epoch % UPDATE_INTERVAL
+    upper_epoch <-- lower_epoch + UPDATE_INTERVAL
+    RETURN lower_epoch, upper_epoch
+ENDFUNCTION
+
+FUNCTION get_probability(variable, dictionary)
+    has_run_counter <-- 0
+    total_times_run <-- 0
+    multi_array <-- []
+
+    FOR key <-- dictionary[0] TO dictionary[-1]
+        multi_array[-1] <-- dictionary[key]
+    ENDFOR
+
+    FOR array <-- multi_array[0] TO multi_array[-1]
+    
+        For item <-- array[0] TO array[-1]
+            present <-- False
+
+            IF variable = item
+                total_times_run <-- total_times_run + 1
+                present <-- True
+            ENDIF
+        ENDFOR
+
+        If present = True
+            has_run_counter <-- has_run_counter + 1
+        ENDIF
+    ENDFOR
+
+    probability <-- has_run_counter/LEN(multi_array)
+
+    IF total_times_run DIV LEN(multi_array) > 1
+        persistence <-- True
+
+    ELSE
+        persistence <-- False
+    ENDIF
+
+    RETURN probability, persistence
+ENDFUNCTION
+
+CONNECT_TO_DATABASE(DATABASE)
+
+programs <-- []
+
+FOR record <-- list of programs in Programs table
+     programs[-1] <-- record[0]
+ENDFOR
+
+open_programs <-- []
+
+FOR line <-- READLINE("open_programs")
+    open_programs[-1] <-- line
+ENDFOR
+
+current_epoch <-- the current time
+lower_epoch, upper_epoch <-- get_time_range(current_epoch)
+first_epoch <-- get the record with the smallest DateTime value from the ProgramLogs table
+logs <-- {}
+condition_logs <-- {}
+
+WHILE upper_epoch > first_epoch
+    range_logs <-- []
+
+    FOR log <-- list of records from the ProgramLogs table that have an OpenClose field of "Open" and a DateTime value greater than or equal to lower_epoch but strictly less than upper_epoch
+        range_logs[-1] <-- log[0]
+    ENDFOR
+
+    logs[upper_epoch] <-- range_logs
+
+    IF open_programs
+        program <-- False
+
+        FOR program <-- open_programs[0] TO open_programs[-1]
+
+            FOR item <-- range_logs[0] TO range_logs[-1]
+                present <-- False
+                
+                IF program = item
+                    present <-- True
+                ENDIF
+            ENDFOR
+
+            IF NOT present
+                program <-- False
+                BREAK
+            ENDIF
+        ENDFOR
+
+        IF program
+            condition_logs[upper_epoch] <-- range_logs
+
+        ELSE:
+            condition_logs[upper_epoch] <-- []
+        ENDIF
+
+    ELSE
+        condition_logs <-- logs
+    ENDIF
+
+    lower_epoch <-- lower_epoch - TIME_PERIOD
+    upper_epoch <-- upper_epoch - TIME_PERIOD
+ENDWHILE
+
+FOR index, program <-- programs[0] TO programs[-1] `where programs[index] = program`
+    program_logs <-- condition_logs
+    
+    FOR item <-- open_programs[0] TO open_programs[-1]
+
+        IF program <-- item
+            CONTINUE
+        ENDIF
+    ENDFOR
+
+    earliest_epoch <-- get the record with the smallest DateTime field and that has a ProgramName of program
+
+    FOR key <-- program_logs[0] TO program_logs[-1] `iterates through each key in the program_logs dictionary`
+
+        IF key < earliest_epoch
+            POP(program_logs[key])
+        ENDIF
+    ENDFOR
+
+    IF LEN(program_logs) > 4
+        probability, persistence <-- get_probability(program, program_logs)
+
+    ELSE
+        probability, persistence <-- get_probability(program, logs)
+    ENDIF
+
+    programs[index] <-- [program, probability, persistence]
+    
+    update Programs table of the database with the new Likelihood and Persistence values for each program
+ENDFOR
+
+DISCONNECT_FROM_DATABASE(DATABASE)

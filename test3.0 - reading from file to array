@@ -1,0 +1,8 @@
+#!/usr/bin/bash
+
+x=()
+while read line; do
+    x+=($line)
+done < ~/test/git/Project-I.A.N./Testing/previous_output
+
+echo ${x[-1]}

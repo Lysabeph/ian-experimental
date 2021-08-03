@@ -1,0 +1,25 @@
+#!/usr/bin/bash
+
+x=()
+
+while [ ${#x[@]} -le 100 ]; do # The 100 is 1- how many times the program loops.
+	stime=$(date +"%s.%N")
+	./textdatarunnerdb # This is where I would swap out the program being run.
+	ftime=$(date +"%s.%N")
+	x+=( $( echo "$ftime" - "$stime" | bc ) )
+	echo ${x[-1]} >> time2 # Writes each time to a file.
+done
+
+total=0
+
+for i in "${x[@]}"; do
+	total=$( echo $total + $i | bc ) # Sums the times.
+done
+
+echo Total: $total
+echo ${#x[@]}
+
+average=$( bc -l <<<"$total / ${#x[@]}" ) # Takes the average.
+echo Average: $average
+echo "Average: $average" >> time2 # Outputs the average at the end of the file.
+

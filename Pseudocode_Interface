@@ -1,0 +1,250 @@
+CLASS ButtonGen()
+
+    FUNCTION on_button_click(self, button)
+        EXECUTE self.command, " &"
+    ENDFUNCTION
+
+    FUNCTION __init__(self, name, preferred_name, command)
+        self.command <-- command
+
+        IF preferred_name
+            self.button <-- a Gtk Button where label <-- preferred_name
+
+        ELSE
+            self.button <-- a Gtk Button where label <-- name
+        ENDIF
+
+        self.button CONNECT_EVENT_SIGNAL "clicked" TO on_button_click()
+    ENDFUNCTION
+ENDCLASS
+
+CLASS SettingsButtonGen()
+
+    FUNCTION __init__(self, name)
+        self.button_box <-- a Gtk ButtonBox widget
+        self.button_box_label <-- a Gtk Label widget with text <-- name
+        self.button_box_entry <-- a Gtk Entry widget
+        self.button_box ADD_TO_CONTAINER self.button_box_label, self.button_box_entry
+    ENDFUNCTION
+ENDCLASS
+
+CLASS MainWindow()
+
+    FUNCTION on_settings_button_click(self, button)
+        self.settings_window <-- SettingsWindow()
+    ENDFUNCTION
+
+    FUNCTION on_settings_button_mouse_on(self, button)
+        self.builder.settings_button IMAGE <-- "dynamic.png"
+    ENDFUNCTION
+
+    FUNCTION on_settings_button_mouse_off(self, button):
+        self.builder.settings_button IMAGE <-- "static.png"
+    ENDFUNCTION
+
+    FUNCTION __init__(self):
+        self.builder <-- Gtk.Builder()
+        self.builder CONNECT_TO "main.ui"
+        self.window <-- self.builder.main_window
+        self.window CONNECT_EVENT_SIGNAL "destroy" TO Gtk.main_quit()
+        self.builder.settings_button CONNECT_EVENT_SIGNAL "clicked" TO self.on_settings_button_click()
+        self.builder.settings_button CONNECT_EVENT_SIGNAL "enter" TO self.on_settings_button_mouse_on()
+        self.builder.settings_button CONNECT_EVENT_SIGNAL "leave" TO self.on_settings_button_mouse_off()
+
+        FOR program <-- sql_programs[0] TO sql_programs[-1]
+            self.button <-- ButtonGen(program[0], program[1], program[2])
+            self.builder.hbox1 ADD_TO_CONTAINER self.button
+        ENDFOR
+
+        DISPLAY self.window
+    ENDFUNCTION
+ENDCLASS
+
+CLASS SettingsWindow(Gtk.Window)
+
+    FUNCTION on_apply_changes_button_click(self, button)
+
+        IF self.builder.entry_database = ""
+            self.alert <-- Gtk.MessageDialog(self, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CANCEL, "Cannot apply changes without database name.")
+            DISPLAY self.alert
+            DESTROY self.alert
+
+        ELSE
+
+            FOR self.setting <-- self.settings[0] TO self.settings[-1]
+
+                FOR self.index, self.item <-- self.settings_list[0] TO self.settings_list[-1] # where self.settings_list[self.index] = self.item
+
+                    IF self.setting[0] IN self.item
+
+                        IF self.setting[2] = 1:
+                            self.settings_list[self.index] <-- self.setting[0], "=", self.builder.self.setting[1] GET_VALUE
+
+                        ELSEIF self.setting[2] = 2
+                            self.settings_list[self.index] <-- self.setting[0], "=", self.builder.self.setting[1]) GET_TEXT
+                        ENDIF
+
+                    ELSE
+                        continue
+                    ENDIF
+                ENDFOR
+            ENDFOR
+        ENDIF
+
+        FOR self.item <-- self.settings_list[0] TO self.settings_list[-1]
+
+            IF self.item[-1] ≠ "\n"
+                self.item <-- self.item, "\n"
+            ENDIF
+
+            WRITELINE("settings.cfg", self.item)
+        ENDFOR
+
+        FOR program <-- sql_programs[0] TO sql_programs[-1]
+            program[1] <-- program[-1] GET_TEXT
+
+            IF program[1]
+                update Programs table of the database with the new PreferredProgramName for each ProgramName
+            ENDIF
+        ENDFOR
+    ENDFUNCTION
+
+    FUNCTION on_close_button_click(self, button)
+        self.confirm_dialog <-- ConfirmDialog(main_window.settings_window.set_window)
+        self.close_response <-- DISPLAY self.confirm_dialog
+        DESTROY self.confirm_dialog
+
+        IF self.close_response = Gtk.ResponseType.OK
+            DESTROY self.set_window
+        ENDIF
+    ENDFUNCTION
+
+    FUNCTION on_select_button_click(self, doc)
+        self.folder_path <-- self.dialog GET_FOLDER
+
+        IF doc = "folder"
+            self.builder.entry_save_path SET_TEXT <-- self.folder_path
+            self.builder.entry_database SET_TEXT <-- ""
+
+        ELSEIF doc = "file"
+            self.builder.entry_database SET_TEXT <-- self.filename
+        ENDIF
+
+        FOR self.index, self.item <-- self.settings_list[0] TO self.settings_list[-1] # where self.settings_list[self.index] = self.item
+
+            IF "SAVE_PATH" IN self.item
+                self.settings_list[self.index] <-- "SAVE_PATH=", self.folder_path
+
+            ELSEIF "DATABASE" IN self.item
+                self.settings_list[self.index] <-- "DATABASE=", self.filename
+            ENDIF
+        ENDFOR
+    ENDFUNCTION
+
+    FUNCTION on_file_button_click(self, button, doc)
+
+        IF doc = "folder"
+            self.dialog <-- Gtk.FileChooserDialog("Open...", self, Gtk.FileChooserAction.SELECT_FOLDER, (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, "Select", Gtk.ResponseType.OK))
+            self.dialog SET_FOLDER <-- self.folder_path
+
+        ELSEIF doc = "file"
+            self.dialog <-- Gtk.FileChooserDialog("Open...", self, Gtk.FileChooserAction.OPEN, (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, "Select", Gtk.ResponseType.OK))
+            self.dialog SET_FILENAME self.filename
+        ENDIF
+
+        self.dialog CONNECT_EVENT_SIGNAL "destroy" TO DESTROY self.dialog
+        self.response <-- DISPLAYself.dialog
+
+        IF self.response = Gtk.ResponseType.OK:
+            self.on_select_button_click(doc)
+        ENDIF
+
+        DESTORY self.dialog
+    ENDFUNCTION
+
+    FUNCTION __init__(self)
+        Gtk.Window.__init__(self)
+        self.builder <-- Gtk.Builder()
+        self.builder CONNECT_TO "settings2.ui"
+        self.set_window <-- self.builder.settings_window
+        self.set_window CONNECT_EVENT_SIGNAL "destroy" TO DESTROY self.set_window
+
+        self.settings_list = []
+
+        FOR line <-- READLINE("settings.cfg")
+            self.settings_list[-1] <-- line
+        ENDFOR
+
+        self.settings <-- [["UPDATE_TIME", "spinbutton_update_time", 1], ["SAVE_PATH", "entry_save_path", 2], ["DATABASE", "entry_database", 2], ["TIME_PERIOD", "spinbutton_time_period", 1], ["UPDATE_INTERVAL", "spinbutton_update_interval", 1]]
+
+        FOR self.setting <-- self.settings[0] TO self.settings[-1]
+
+            FOR self.item <-- self.settings_list[0] TO self.settings_list[-1]
+
+                IF self.setting[0] IN self.item
+
+                    IF self.setting[2] = 1
+                        self.builder.self.setting[1] SET_VALUE self.item
+
+                    ELSEIF self.setting[2] = 2
+                        self.builder.self.setting[1] SET_TEXT self.item
+                    ENDIF
+
+                ELSE
+                    continue
+                ENDIF
+            ENDFOR
+        ENDFOR
+
+        self.folder_path <-- self.builder.entry_save_path GET_TEXT
+        self.filename <-- self.builder.entry_database GET_TEXT
+
+        FOR self.index, self.program <-- sql_programs[0] TO sql_programs[-1]
+
+            IF self.program[1]
+                self.name <-- self.program[1]
+
+            ELSE
+                self.name <-- self.program[0]
+            ENDIF
+
+            sql_programs[self.index][-1] <-- SettingsButtonGen(self.name)
+            self.builder.box_programs ADD_TO_CONTAINER self.program[-1].button_box
+        ENDFOR
+
+        self.builder.button_save_path CONNECT_EVENT_SIGNAL "clicked" TO self.on_file_button_click, "folder"
+        self.builder.button_database CONNECT_EVENT_SIGNAL "clicked" TO self.on_file_button_click, "file"
+        self.builder.apply_changes_button1 CONNECT_EVENT_SIGNAL "clicked" TO self.on_apply_changes_button_click
+        self.builder.close_button1 CONNECT_EVENT_SIGNAL "clicked" TO self.on_close_button_click
+        DISPLAY self.set_window
+    ENDFUNCTION
+ENDCLASS
+
+CLASS ConfirmDialog(Gtk.Dialog)
+
+    FUNCTION __init__(self, parent)
+        Gtk.Dialog.__init__(self, "Close...", parent, 0, (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, "Close", Gtk.ResponseType.OK))
+        self.parent <-- parent
+        self.close_label <-- a Gtk Label widget with text <-- "<big><b>Are you sure you're done?</b></big>"
+        self.box ADD_TO_CONTAINER self.close_label
+        DISPLAY self
+    ENDFUNCTION
+ENDCLASS
+
+FOR line <-- READLINE("settings.cfg")
+
+    IF "DATABASE=" IN line
+        DATABASE <-- line[8:]
+    ENDIF
+ENDFOR
+
+sql_programs <-- []
+
+CONNECT_TO_DATABASE(DATABASE)
+
+FOR record <-- list of ProgramName, PreferredProgramName and ProgramCMD
+    sql_programs[-1] <-- record
+ENDFOR
+
+main_window <-- MainWindow()
+Gtk.main()

@@ -1,0 +1,32 @@
+logs <-- [[log_1, state_1] [log_2, state_2] [log_3, state_3] ..., [log_n, state_n]]
+open_programs <-- [program_1, program_2, program_3, ..., program_m]
+
+FOR log_index <-- INDEX logs[0] TO logs[-1]
+
+    FOR open_index <-- INDEX open_programs[0] TO open_programs[-1]
+
+        IF logs[log_index][0] = open_programs[open_index] THEN
+            present = True
+            
+            IF logs[log_index][1] = "Close" THEN
+                open_programs[open_index] = ""
+            ENDIF
+
+        ENDIF
+
+    ENDFOR
+
+    IF present THEN
+
+        IF logs[log_index][1] = "Open" THEN
+            logs[log_index] = ""
+
+    ELSE
+
+        IF logs[log_index][1] = "Open" THEN
+            open_programs APPEND logs[log_index][0]
+        ENDIF
+
+    ENDIF
+
+ENDFOR

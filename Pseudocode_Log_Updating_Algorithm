@@ -1,0 +1,57 @@
+FOR line <-- READLINE("settings.cfg")
+
+    IF "DATABASE=" IN line
+        DATABASE <-- line[8:]
+    ENDIF
+ENDFOR
+
+CONNECT_TO_DATABASE(DATABASE) `Uses sqlite3 to connect to the SQL database.`
+
+programs <-- []
+new_time <-- GET_CURRENT_TIME() `Gets the current time from the system.`
+
+lastest_time <-- READLINE("latest_time")
+
+FOR record <-- list of programs in Programs table
+    programs[-1] <-- record
+ENDFOR
+
+FOR program <-- programs[0] TO programs[-1]
+    l <-- list of ProgramNumber, TotalRunTime, TimesRun for the current program
+    program_number <--l[0]
+    running_time_total <-- l[1]
+    counter <-- l[2]
+    pstate <-- NONE
+
+    FOR record <-- list of data from the ProgramLogs table with a ProgramNumber of program_number and a DateTime bigger than lastest time
+
+        IF pstate = "Open"
+
+            IF record[-1] = "Open" `If the OpenClose field = "Open"`
+                CONTINUE
+
+            ELSE
+                ftime <-- record[-2] `The log time of the current log`
+                running_time_total <-- running_time_total + (ftime - stime)
+                pstate <-- "Close"
+            ENDIF
+
+        ELSE
+
+            IF record[-1] = "Open"
+                stime <-- record[-2]
+                counter <-- counter + 1
+                pstate <-- "Open"
+
+            ELSE
+                CONTINUE
+            ENDIF
+        ENDIF
+    ENDFOR
+
+    update the database with the new data for each program in programs
+ENDFOR
+
+DISCONNECT_FROM_DATABASE(DATABASE)
+WRITELINE("latest_time", new_time)
+

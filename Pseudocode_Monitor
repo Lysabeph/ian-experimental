@@ -1,0 +1,116 @@
+# All shell commands will be enclosed by a pair of tildes ~ character.
+
+# Initialises the constants for the program.
+UPDATE_TIME <-- 10 # Time in seconds.
+SAVE_PATH <-- ~/.ian
+open_program_dict <-- {} # Where {} denotes an empty data dictionary.
+open_program_array <-- []
+
+IF NOT SAVE_PATH THEN
+    ~mkdir SAVE_PATH~ # Creates a directory, as specified by SAVE_PATH, for the program data to be stored.
+ENDIF
+
+~ps -u $USER -o pid,comm,lstart,cmd > $SAVE_PATH/previous_output~ # Saves the output of the system commnd to a file - previous_output.
+
+WHILE TRUE
+    ~ps -u $USER -o pid,comm,lstart,cmd > $SAVE_PATH/newest_output~ # Saves the output of the system commnd to a file - newest_output.
+
+    # Reads the data from the previous_output file into an array.
+    FOR 1 TO num <-- LEN(SAVE_PATH/previous_ouput)
+        prev_output[n+1] <-- READLINE(SAVE_PATH/previous_output, num) # Where n+1 is the next available element in the array.
+    ENDFOR
+    prev_output[-1] <-- NULL
+
+    # Reads the data from the newest_output file into an array.
+    FOR 1 TO num <-- LEN(SAVE_PATH/newest_ouput)
+        new_output[n+1] <-- READLINE(SAVE_PATH/newest_output, num)
+    ENDFOR
+    new_output[-1] <-- NULL
+
+    offset <-- 0
+    log <-- []
+
+    FOR 1 TO element <-- LEN(new_output)
+        
+        WHILE TRUE
+            prev_proc <-- [prev_output[element + offset]] # A multidimentional array defined one dimentionally as bash doesn't support multidimentional arrays.
+            new_proc <-- [prev_output[element]]
+
+            IF prev_proc = new_proc THEN
+                BREAK
+            ELSE
+                prev_pid <-- prev_proc[0] # Gets the pid integer from the array.
+
+                IF prev_pid = 0 THEN
+                    prec_pid <-- ~cat /proc/sys/kernel/pid_max + 1~ # Makes it large for easy comparison later.
+                ENDIF
+            
+                new_pid <-- new_proc[0] # Gets the pid integer from the array.
+            
+                # Adds a time stamp to each process log..
+                IF new_pid < prev_pid THEN
+                    offset <-- offset - 1
+                    # Adds an Open flag to each process log.
+                    log[n+1] <-- new_proc + ~$(date +"%A/%d/%m/%Y/%T")~ + "Open"
+                    BREAK
+                ELSEIF new_pid > prev_pid THEN
+                    offset <-- offset + 1
+                    # Adds an Open flag to each process log.
+                    log[n+1] <-- prev_proc + ~$(date +"%A/%d/%m/%Y/%T")~ + "Close"
+                ENDIF
+            
+            ENDIF
+
+        ENDWHILE
+
+    ENDFOR
+    
+    FOR item <-- prev_output[element + offset + 1] TO prev_output[-1]
+        log[n+1] <-- prev_proc + ~$(date +"%A/%d/%m/%Y/%T")~ + "Close"
+    ENDFOR
+
+    FOR item <-- log[0] TO log[LEN(log)]
+        record <-- [log[item]]
+        index <-- 1
+        
+        FOR pid <-- open_program_dict[0] TO open_program_dict[LEN(open_program_dict)]
+            name <-- open_program_dict[pid]
+            
+            IF name = record[index] THEN
+                present <-- True
+                
+                IF record[0] = pid THEN
+                    open_program_dict[pid] <-- NULL
+                ELSE
+                    log[item] <-- NULL
+                ENDIF
+                
+                BREAK
+                
+            ENDIF
+            
+        ENDFOR
+        
+        IF NOT present THEN
+            
+            IF record[-1] = "Open" THEN
+                open_program_dict["record[0]"] <-- "record[index]"
+                temp <-- record[0:-2]
+                open_program_array[n+1] <-- "temp"
+                temp <-- NULL
+            ELSE
+                log[item] <-- NULL
+            ENDIF
+            
+        ENDIF
+        
+    ENDFOR
+    
+    FOR item <-- log[0] TO log[LEN(log)]
+        # Writes the new logs to a logs database using SQL.
+    ENDFOR
+
+    ~sleep $UPDATE_TIME~ # Idles the program for the length of time (seconds) assigned to UPDATE_TIME.
+    ~cat $SAVE_PATH/newest_output > $SAVE_PATH/previous_output~ # Re-writes the previous_output file with the data from the newest_output file.
+
+ENDWHILE

@@ -1,0 +1,19 @@
+#!/usr/bin/bash
+
+DATABASE=~/test/git/Project-I.A.N./Testing/Programs.dba
+S="sqlite3 $DATABASE"
+if [ ! -f $DATABASE ]; then
+    echo Creating database.
+    > $DATABASE
+    echo Creating Software table.
+    $S "CREATE TABLE Software (SoftwareID int,SoftwareName varchar(20),RunCommand varchar(32));"
+    echo Creating ProgramLog table.
+    $S "CREATE TABLE ProgramLog (LogID int,SoftwareID int,DateTime datetime,OpenClose bit);"
+fi
+
+echo Finished database setup.
+
+echo Inserting data into the Software table.
+$S "INSERT INTO Software (SoftwareID, SoftwareName, RunCommand) VALUES ('001', 'Google Chrome', 'google-chrome')";
+
+$S "SELECT * FROM Software";

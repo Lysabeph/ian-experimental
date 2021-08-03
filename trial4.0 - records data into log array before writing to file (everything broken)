@@ -1,0 +1,116 @@
+#!/usr/bin/bash
+
+UPDATE_TIME=10
+BLACKLIST=( /bin/bash )
+
+function compare_output {
+    # Reads the contents of the previous output into the program.
+    
+    mapfile -t prev_output < ~/test/git/Project-I.A.N./Testing/previous_output
+    unset prev_output[-1] # Removes the 'ps -u $USER -o pid,cmd' process.
+    
+    mapfile -t new_output < ~/test/git/Project-I.A.N./Testing/newest_output
+    unset new_output[-1] # Removes the 'ps -u $USER -o pid,cmd' process.
+
+    offset=0
+    local -a log
+
+    for element in ${!new_output[@]}; do
+    
+        while true; do
+            prev_proc=(${prev_output[$((element + offset))]})
+            new_proc=(${new_output[$element]})
+            
+            if [ "$prev_proc" == "$new_proc" ]; then
+                break
+            else
+                # Gets the pid (only) of the previous process being compared at the time.
+                local -i prev_pid=${prev_proc[0]}
+                # If prev_output < new_output, empty array elements default to a zero value.
+                # Setting the value larger than the max pid means new processes have a pid
+                # less than the non-existant previous process.
+                if [ "$prev_pid" -eq "0" ]; then
+                    prev_pid=$(($(cat /proc/sys/kernel/pid_max) + 1))
+                fi
+                
+                # Gets the pid (only) of the new process being compared at the time.
+                local -i new_pid=${new_proc[0]}
+                
+                # Determines if a new process was started or if an old process was stopped.            
+                if [ "$new_pid" -lt "$prev_pid" ]; then
+                    ((offset--))
+                    #echo New process detected! ${new_proc[@]}
+                    #echo ${new_proc[@]} $(date +"%A/%d/%m/%Y/%T") Open >> ~/test/git/Project-I.A.N./logs
+                    #echo ${new_proc[@]} $(date +"%A/%d/%m/%Y/%T") Open | tee -a ~/test/git/Project-I.A.N./Testing/logs
+                    log+=("${new_proc[@]} $(date +"%A/%d/%m/%Y/%T") Open")
+                    echo "${new_proc[@]} $(date +"%A/%d/%m/%Y/%T") Open"
+                    break
+                elif [ "$new_pid" -gt "$prev_pid" ]; then
+                    ((offset++))
+                    #echo Old process stopped! ${prev_proc[@]}
+                    #echo ${prev_proc[@]} $(date +"%A/%d/%m/%Y/%T") Close >> ~/test/git/Project-I.A.N./logs
+                    #echo ${prev_proc[@]} $(date +"%A/%d/%m/%Y/%T") Close | tee -a ~/test/git/Project-I.A.N./Testing/logs
+                    log+=("${new_proc[@]} $(date +"%A/%d/%m/%Y/%T") Close")
+                    echo "${new_proc[@]} $(date +"%A/%d/%m/%Y/%T") Close"
+                fi
+            fi
+        done
+    done
+    
+    # Finds any old processes that were started after the now most recently started process.
+    for item in "${prev_output[@]:$((element + offset + 1))}"; do
+        #echo $item $(date +"%A/%d/%m/%Y/%T") Close >> ~/test/git/Project-I.A.N./logs
+        #echo $item $(date +"%A/%d/%m/%Y/%T") Close | tee -a ~/test/git/Project-I.A.N./Testing/logs
+        log+=("${new_proc[@]} $(date +"%A/%d/%m/%Y/%T") Close")
+        echo "${new_proc[@]} $(date +"%A/%d/%m/%Y/%T") Close"
+    done
+
+    declare -a open
+    local -a temp=$log
+    echo ---
+    for i in ${log[@]}; do
+        echo $i
+    done
+    echo ---
+
+    # Removes all the unnecessary records from the data.
+    for item in "${!temp[@]}"; do
+        record=(${temp[$item]})
+        declare -i index=1
+        while true; do
+            if [[ "${BLACKLIST[*]}" == "${record[$index]}" ]]; then
+                index+=index
+            else
+                break
+            fi
+        done
+        if [[ "${open[*]}" == "${record[$index]}" ]]; then
+            for element in "${!open[@]}"; do
+                if [[ "${open[$element]}" == "${record[$index]}" ]]; then
+                    if [[ "${record[-1]}" != "Close" ]]; then
+                        unset log[$item]
+                    else
+                        unset open[$element]
+                    fi
+                fi
+            done
+        else
+            open+=${record[$index]}
+        fi
+    done
+    for item in ${log[@]}; do
+        echo $item | tee -a ~/test/git/Project-I.A.N./Testing/logs
+    done
+}
+
+ps -u $USER -o pid,cmd > ~/test/git/Project-I.A.N./Testing/previous_output
+
+while true; do
+    ps -u $USER -o pid,cmd > ~/test/git/Project-I.A.N./Testing/newest_output
+    compare_output
+    echo ~~~~~
+    echo ${open[@]}
+    echo ~~~
+    sleep $UPDATE_TIME
+    cat ~/test/git/Project-I.A.N./Testing/newest_output > ~/test/git/Project-I.A.N./Testing/previous_output
+done

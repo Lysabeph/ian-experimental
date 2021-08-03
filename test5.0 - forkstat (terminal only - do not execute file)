@@ -1,0 +1,3 @@
+#!/usr/bin/bash
+
+forkstat time,event,pid,duration,process -e exec, exit > ~/test/git/Projec-I.A.N./log

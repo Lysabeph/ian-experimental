@@ -1,0 +1,139 @@
+#!/usr/bin/bash
+
+UPDATE_TIME=10
+BLACKLIST=( /bin/bash )
+SAVE_PATH=~/.ian
+declare -A OPEN_PROGRAM_DICT
+declare -a OPEN_PROGRAM_ARRAY
+
+if [ ! -d $SAVE_PATH ]; then
+    mkdir $SAVE_PATH
+fi
+
+sleep 1
+
+function exit_trap_cleanup {
+    for i in "${OPEN_PROGRAM_ARRAY[@]}"; do
+        echo "*** $i"
+    done
+    echo Starting cleanup.
+    for item in "${OPEN_PROGRAM_ARRAY[@]}"; do
+        echo "$item $(date +"%A/%d/%m/%Y/%T") Close" | tee -a $SAVE_PATH/logs
+    done
+    echo Finished cleanup.
+    echo Exiting.
+}
+
+trap exit_trap_cleanup EXIT
+
+function compare_output {
+    # Reads the contents of the previous output into the program.
+    
+    mapfile -t prev_output < $SAVE_PATH/previous_output
+    unset prev_output[-1] # Removes the 'ps -u $USER -o pid,cmd' process.
+    
+    mapfile -t new_output < $SAVE_PATH/newest_output
+    unset new_output[-1] # Removes the 'ps -u $USER -o pid,cmd' process.
+
+    offset=0
+    local -a log
+
+    for element in ${!new_output[@]}; do
+    
+        while true; do
+            prev_proc=(${prev_output[$((element + offset))]})
+            new_proc=(${new_output[$element]})
+            
+            if [ "$prev_proc" == "$new_proc" ]; then
+                break
+            else
+                # Gets the pid (only) of the previous process being compared at the time.
+                local -i prev_pid=${prev_proc[0]}
+                # If prev_output < new_output, empty array elements default to a zero value.
+                # Setting the value larger than the max pid means new processes have a pid
+                # less than the non-existant previous process.
+                if [ "$prev_pid" -eq "0" ]; then
+                    prev_pid=$(($(cat /proc/sys/kernel/pid_max) + 1))
+                fi
+                
+                # Gets the pid (only) of the new process being compared at the time.
+                local -i new_pid=${new_proc[0]}
+                
+                # Determines if a new process was started or if an old process was stopped.            
+                if [ "$new_pid" -lt "$prev_pid" ]; then
+                    ((offset--))
+                    log=("${log[@]}" "${new_proc[*]} $(date +"%A/%d/%m/%Y/%T") Open")
+                    break
+                elif [ "$new_pid" -gt "$prev_pid" ]; then
+                    ((offset++))
+                    log=("${log[@]}" "${prev_proc[*]} $(date +"%A/%d/%m/%Y/%T") Close")
+                fi
+            fi
+        done
+    done
+    
+    # Finds any old processes that were started after the now most recently started process.
+    for item in "${prev_output[@]:$((element + offset + 1))}"; do
+        log=("${log[@]}" "${prev_proc[*]} $(date +"%A/%d/%m/%Y/%T") Close")
+    done
+
+    local -a temp=("${log[@]}")
+
+    # Removes all the unnecessary records from the data.
+    for item in "${!temp[@]}"; do
+        record=(${temp[$item]})
+        declare -i index=1
+        while true; do
+            if [[ "${BLACKLIST[*]}" == "${record[$index]}" ]]; then
+                index+=index
+            else
+                break
+            fi
+        done
+        for pid in "${!OPEN_PROGRAM_DICT[@]}"; do
+            name=${OPEN_PROGRAM_DICT[$pid]}
+            if [[ "$name" == "${record[$index]}" ]]; then
+                local present=true
+                if [[ "${record[0]}" == "$pid" ]]; then
+                    unset OPEN_PROGRAM_DICT[$pid]
+                else
+                    unset log[$item]
+                break
+                fi
+            fi
+        done
+        echo "$present"
+        if ! [ $present ]; then
+            if [ "${record[-1]}" == "Open" ]; then
+                OPEN_PROGRAM_DICT["${record[0]}"]="${record[$index]}"
+                temp2=${record[@]:0:${#record[@]}-2}
+                OPEN_PROGRAM_ARRAY=("${OPEN_PROGRAM_ARRAY[@]}" "$temp2")
+                unset temp2
+            else
+                unset log[$item]
+            fi
+        else
+            unset present
+        fi
+    done
+    unset temp
+    for item in "${log[@]}"; do
+        echo $item | tee -a $SAVE_PATH/logs
+        echo $item | tee -a $SAVE_PATH/new_logs
+    done
+}
+
+ps -u $USER -o pid,cmd > $SAVE_PATH/previous_output
+
+while true; do
+    ps -u $USER -o pid,cmd > $SAVE_PATH/newest_output
+    compare_output
+    echo Open Programs
+    echo ~~~~~
+    for i in "${!OPEN_PROGRAM_DICT[@]}"; do
+        echo $i ${OPEN_PROGRAM_DICT[$i]}
+    done
+    echo ~~~~~
+    sleep $UPDATE_TIME
+    cat $SAVE_PATH/newest_output > $SAVE_PATH/previous_output
+done

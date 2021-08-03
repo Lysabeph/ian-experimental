@@ -1,0 +1,12 @@
+#!/usr/bin/bash
+
+function cleanup {
+    echo Exiting
+}
+
+trap cleanup EXIT
+
+while true; do
+    echo Running as normal.
+    sleep 5
+done

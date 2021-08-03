@@ -1,0 +1,12 @@
+#!/usr/bin/bash
+
+DATABASE=~/.ian/Programs.dba
+if [ ! -f $DATABASE ]; then
+    echo Setting up database.
+    mkdir ~/.ian
+    sqlite3 -echo $DATABASE <<EOF
+        CREATE TABLE Software (SoftwareID int,SoftwareName varchar(20),RunCommand varchar(32));
+        CREATE TABLE ProgramLog (LogID int,SoftwareID int,DateTime datetime,OpenClose bit);
+EOF
+fi
+echo Finished database setup.

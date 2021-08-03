@@ -1,0 +1,29 @@
+#!/usr/bin/bash
+
+function get_proc {
+    array=()
+    ls /proc > "proc_list"
+    while read -r line; do
+        element="$line"
+        array+=("$element")
+    done < "proc_list"
+}
+
+get_proc
+previous_array=("${array[@]}")
+
+# There is a mystery process being called every time this loops...
+while sleep 5; do
+    get_proc
+    new_proc_array=()
+    for element1 in "${array[@]}"; do
+        skip=
+        for element2 in "${previous_array[@]}"; do
+            [[ $element1 == $element2 ]] && { skip=1; break; }
+        done
+        [[ -n $skip ]] || new_proc_array+=("$element1")
+    done
+
+    echo "${new_proc_array[*]}"
+    previous_array=("${array[@]}")
+done

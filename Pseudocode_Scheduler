@@ -1,0 +1,42 @@
+settings_list <-- []
+
+FOR line <-- READLINE("settings.cfg")
+    settings_list[-1] <-- line
+ENDFOR
+
+FOR setting <-- settings_list[0] TO settings_list[-1]
+
+    IF "UPDATE_INTERVAL=" in setting
+        UPDATE_INTERVAL <-- setting[16:]
+        BREAK
+    ENDIF
+ENDFOR
+
+EXECUTE "chmod +x I.A.N.\ Monitor"
+s <-- sched.scheduler(time.time, time.sleep)
+
+FUNCTION updater()
+    EXCUTE "python3 I.A.N.\ Log\ Updater.py &"
+    EXECUTE "python3 I.A.N.\ Statistics.py &"
+ENDFUNCTION
+
+FUNCTION program_scheduler()
+    s ADD_TO_QUEUE UPDATE_INTERVAL, 1, updater
+    s()
+    RETURN True
+ENDFUNCTION
+
+updater()
+EXECUTE "python3 I.A.N.\ Interface.py"
+EXECUTE "./I.A.N.\ Monitor &"
+t <-- (UPDATE_INTERVAL - 60) - (current time)%UPDATE_INTERVAL
+
+IF t > 0
+    WAIT t
+ENDIF
+
+updater()
+
+WHILE True:
+    program_scheduler()
+ENDWHILE

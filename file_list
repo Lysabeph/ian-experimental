@@ -1,0 +1,30 @@
+arb_file
+exec_notify.py
+file_list
+logs
+log_sample1
+newest_output
+previous_output
+proc_list
+Programs.dba
+test1.0 - monitor changes to directory
+test2.0 - reading from a file
+test3.0 - reading from file to array
+test3.1 - reading from file to array with mapfile
+test4.0 - database creation
+test4.1 - simpler database creation
+test5.0 - forkstat (terminal only - do not execute file)
+test6.0 - trapping exit signals (doesn't work)
+test6.1 - trapping exit signals (does work)
+test.py
+trial1.0 - gets most recent pid from proc
+trial2.0 - gets new and old processes using ps
+trial3.0 - saves new and old processes to log file
+trial4.0 - records data into log array before writing to file (everything broken)
+trial4.1 - records data into log array before writing to file (less broken - record almost together)
+trial4.2.5 - a 5.0 variation based off a 4.2 core
+trial4.2 - records to file and removes some repeats (mainly google chrome - almost perfect, first record fragmented)
+trial4.3 - records to file and repeats on open but not on close
+trial4.4 - records to file without major repeats
+trial5.0 - Traps any EXIT calls and adds a closing record for each open program first
+tutorial.sql

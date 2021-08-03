@@ -1,0 +1,219 @@
+#!/usr/bin/bash
+
+# Defines all constants.
+UPDATE_TIME=10
+SAVE_PATH=~/test/git/Project-I.A.N./Testing
+DATABASE=$SAVE_PATH/test.db
+
+# Defines all global data stores.
+declare -A open_program_dict
+
+# Checks the path for the program exists.
+if [ ! -d $SAVE_PATH ]; then
+    mkdir $SAVE_PATH
+fi
+
+# Checks that the database has been created.
+if [ ! -f $DATABASE ]; then
+    sqlite3 $DATABASE < create.sql
+fi
+
+function close_record () {
+            current_time="$1"
+            pid="$2"
+            name="$3"
+
+            start_time=$( sqlite3 $DATABASE "
+                SELECT ProgramLogs.DateTime
+                FROM ProgramLogs
+                WHERE ProgramLogs.ProgramName='$name'
+                AND ProgramLogs.PID='$pid'
+                AND ProgramLogs.OpenClose='Open'
+                ORDER BY DateTime DESC Limit 1;")
+
+            run_time=$(( current_time - start_time ))
+
+            total_time=$( sqlite3 $DATABASE "
+                SELECT Programs.TotalRunTime
+                FROM Programs
+                WHERE Programs.ProgramName='$name';" )
+
+            echo $( sqlite3 $DATABASE "
+                UPDATE Programs
+                SET TotalRunTime=$(( $total_time + $run_time ))
+                WHERE ProgramName='$name';" )
+}
+
+function exit_trap_cleanup () {
+    current_time=$(date +"%s")
+
+    for pid in "${!open_program_dict[@]}"; do
+        name=${open_program_dict[$pid]}
+
+        echo $( sqlite3 $DATABASE "
+            INSERT INTO ProgramLogs(ProgramName, PID, DateTime, OpenClose)
+            VALUES('$name', '$pid', '$current_time', 'Close');" )
+
+            close_record "$current_time" "$pid" "$name"
+    done
+}
+
+trap exit_trap_cleanup EXIT
+
+function compare_output () {
+    mapfile -t prev_output < $SAVE_PATH/previous_output # Reads the contents of the previous output from the file.
+    unset prev_output[-1] # Removes the 'ps' process.
+    mapfile -t new_output < $SAVE_PATH/newest_output # Reads the contents of the newest output from the file.
+    unset new_output[-1] # Removes the 'ps' process.
+    offset=0 # Initiates the offset counter with a default value (usually 0).
+    local -a log
+
+    # Loops through each record of the $new_output.
+    for element in ${!new_output[@]}; do
+
+        # Loops to catch all new and old processes.
+        while true; do
+            OIFS=$IFS # Stores the old IFS.
+            IFS='¬' # Changes the IFS so that the files with '¬' as a delimeter can be split into indexable parts.
+            prev_record=( ${prev_output[ $(( element + offset )) ]} )
+            new_record=( ${new_output[ $element ]} ) # An indexable array.
+            IFS=$OIFS # Sets the IFS back to its original state.
+
+            # Moves onto the next record of $new_output if the new and previous records are the same.
+            if [ "$prev_record" == "$new_record" ]; then
+                break
+            # Finds out if a new process was started or an old one was ended.
+            else
+                local -i prev_pid=${prev_record[0]} # Index 0 of any record is a process' PID.
+
+                # PID of 0 means $prev_output has fewer records than $new_output.
+                if [ "$prev_pid" -eq "0" ]; then
+                    prev_pid=$(( $( cat /proc/sys/kernel/pid_max ) + 1 ))
+                fi
+
+                local -i new_pid=${new_record[0]}
+
+                # Checks if a new process was started.
+                if [ "$new_pid" -lt "$prev_pid" ]; then
+                    (( offset-- )) # Changes the offset counter to compensate.
+                    log=( "${log[@]}" "${new_output[ $(( element )) ]} ¬$( date +"%s" ) ¬Open" ) # Logs the changes.
+                    break # Moves onto the next record.
+                # Checks if an old process was stopped.
+                elif [ "$new_pid" -gt "$prev_pid" ]; then
+                    (( offset++ )) # Changes the offset counter to compensate.
+                    log=( "${log[@]}" "${prev_output[ $(( element + offset )) ]} ¬$(date +"%s") ¬Close" ) # Logs the changes.
+                    # The loop doesn't break, meaning any more old proceses are logged.
+                fi
+            fi
+        done
+    done
+
+    # Finds old processes started after the most recently started process (if $prev_output is longer than $new_output).
+    for _ in "${prev_output[@]:$((element + offset + 1))}"; do
+        log=( "${log[@]}" "${prev_output[ $(( element + offset )) ]} ¬$(date +"%s") ¬Close" ) # Logs the changes.
+    done
+
+    # Removes all the unnecessary records from the data.
+    # Loops through each logged record.
+    for item in "${!log[@]}"; do
+        OIFS=$IFS # Stores the old IFS.
+        IFS='¬' # Changes the IFS so that the files with '¬' as a delimeter can be split into indexable parts.
+        record=( ${log[$item]} ) # An indexable array.
+        IFS=$OIFS # Sets the IFS back to its original state.
+
+        # Loops through each open program.
+        for pid in "${!open_program_dict[@]}"; do
+            pname=${open_program_dict["$pid"]}
+
+            # Checks if the program is already open.
+            if [[ "$pname" == "${record[1]}" ]]; then
+                local present=true
+
+                # If the PID is the same as the open one, the program must have closed.
+                if [[ "${record[0]}" == "$pid" ]]; then
+                    unset open_program_dict["$pid"]
+                # If the PID is different, a child process of the open process must have started (not needed).
+                else
+                    unset log[$item]
+                fi
+                break
+            fi
+        done
+
+        # If the program wasn't already open.
+        if ! [ $present ]; then
+
+            # If the record is a new process, add it to the array of open programs.
+            if [ "${record[-1]}" == "Open" ]; then
+                open_program_dict["${record[0]}"]="${record[1]}"
+
+            # Otherwise, it's a close process for a program that isn't open (a child process for example).
+            else
+                unset log[$item]
+            fi
+        else
+            unset present # Removes the value stored as $present.
+        fi
+    done
+
+    # Loops through the logged records again now that all unnecessary records have been removed.
+    for item in "${!log[@]}"; do
+        OIFS=$IFS # Stores the old IFS.
+        IFS='¬' # Changes the IFS so that the files with '¬' as a delimeter can be split into indexable parts.
+        record=( ${log[$item]} ) # Stores $record as an indexable array.
+        IFS=$OIFS # Sets the IFS back to its original state.
+        pid=${record[0]}
+        name=${record[1]} # This isn't guaranteed but how many programs have a '¬' in their name?
+
+        command=${record[@]:2:${#record[@]}-2} # This should be index 2 but this cannot be guaranteed.
+        current_time=${record[-2]}
+        state=${record[-1]}
+        # Creates an array of all the programs on the machine that have been used.
+        programs=$( sqlite3 $DATABASE "
+            SELECT Programs.ProgramName
+            FROM Programs;" )
+
+        # Adds all new programs to the database.
+        if ! [[ "${programs[*]}" == *"$name"* ]]; then
+
+            echo $( sqlite3 $DATABASE "
+                INSERT INTO Programs(ProgramName, TimesRun, TotalRunTime)
+                VALUES('$name', 0, 0);" )
+        fi
+        
+        # Inserts the record into the database.
+        echo $( sqlite3 $DATABASE "
+            INSERT INTO ProgramLogs(ProgramName, PID, DateTime, OpenClose)
+            VALUES('$name', '$pid', '$current_time', '$state');" )
+
+        # Increments the times run value of all newly open programs.
+        if [[ "$state" == "Open" ]]; then
+
+            times_run=$( sqlite3 $DATABASE "
+                SELECT TimesRun
+                FROM Programs
+                WHERE Programs.ProgramName='$name';" )
+
+            echo $( sqlite3 $DATABASE "
+                UPDATE Programs
+                SET TimesRun=$(( $times_run + 1 ))
+                WHERE ProgramName='$name';" )
+
+        # Increases the total time run for all closed programs.
+        elif [[ "$state" == "Close" ]]; then
+            close_record $current_time $pid $name
+        fi
+    done
+}
+
+# Gets the running processes when the program first runs.
+ps -u $USER -o "%p¬%c¬" -o cmd > $SAVE_PATH/previous_output
+
+# Loops indefinitely.
+while true; do
+    # Gets the currently running processes.
+    ps -u $USER -o "%p¬%c¬" -o cmd > $SAVE_PATH/newest_output
+    compare_output # The function call for the main computation.
+    sleep $UPDATE_TIME # The delay between updates.
+    cat $SAVE_PATH/newest_output > $SAVE_PATH/previous_output # Re-writes the newest and previous files.
+done
